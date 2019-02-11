@@ -30,8 +30,7 @@ from sklearn.datasets import load_diabetes
 from sklearn.datasets import load_boston
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.pipeline import make_pipeline, make_union
-from sklearn.impute import SimpleImputer, IterativeImputer, MissingIndicator
-from sklearn.impute import SimpleImputer, KNNImputer, MissingIndicator
+from sklearn.impute import SimpleImputer, IterativeImputer, MissingIndicator, KNNImputer
 from sklearn.model_selection import cross_val_score
 
 rng = np.random.RandomState(0)
@@ -100,7 +99,7 @@ def get_results(dataset):
     return ((full_scores.mean(), full_scores.std()),
             (zero_impute_scores.mean(), zero_impute_scores.std()),
             (mean_impute_scores.mean(), mean_impute_scores.std()),
-            (iterative_impute_scores.mean(), iterative_impute_scores.std()))
+            (iterative_impute_scores.mean(), iterative_impute_scores.std()),
             (knn_impute_scores.mean(), knn_impute_scores.std()))
 
 
