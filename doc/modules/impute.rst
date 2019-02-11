@@ -32,6 +32,14 @@ missing values (e.g. :class:`impute.IterativeImputer`).
 Univariate feature imputation
 =============================
 
+Imputer transformers can be used in a Pipeline as a way to build a composite
+estimator that supports imputation.  See
+:ref:`sphx_glr_auto_examples_plot_missing_values.py`.
+
+
+Simple univariate imputation
+============================
+
 The :class:`SimpleImputer` class provides basic strategies for imputing missing
 values. Missing values can be imputed with a provided constant value, or using
 the statistics (mean, median or most frequent) of each column in which the
@@ -173,6 +181,46 @@ References
 
 .. [2] Roderick J A Little and Donald B Rubin (1986). "Statistical Analysis
    with Missing Data". John Wiley & Sons, Inc., New York, NY, USA.
+
+.. _knnimpute:
+
+Nearest neighbors imputation
+============================
+
+The :class:`KNNImputer` class provides imputation for completing missing
+values using the k-Nearest Neighbors approach. Each sample's missing values
+are imputed using values from ``n_neighbors`` nearest neighbors found in the
+training set. In this context, a donor defined to be a neighbor that
+contributes to the imputation of a given sample. If a sample has more than one
+feature missing, then the sample can potentially have multiple sets of
+``n_neighbors`` donors depending on the particular feature being imputed.
+
+Each missing feature is then imputed as the average, either weighted or
+unweighted, of these neighbors. When the number of donor neighbors is less
+than ``n_neighbors``, the training set average for that feature is
+used for imputation. When a row has more than a ``row_max_missing`` fraction
+of its columns missing, then it is excluded from being a donor for imputation. 
+For more information on the methodology, see ref. [OLGA]_.
+
+The following snippet demonstrates how to replace missing values,
+encoded as ``np.nan``, using the mean feature value of the two nearest
+neighbors of the rows that contain the missing values::
+
+    >>> import numpy as np
+    >>> from sklearn.impute import KNNImputer
+    >>> nan = np.nan
+    >>> X = [[1, 2, nan], [3, 4, 3], [nan, 6, 5], [8, 8, 7]]
+    >>> imputer = KNNImputer(n_neighbors=2, weights="uniform")
+    >>> imputer.fit_transform(X)
+    array([[1. , 2. , 4. ],
+           [3. , 4. , 3. ],
+           [5.5, 6. , 5. ],
+           [8. , 8. , 7. ]])
+
+.. [OLGA] Olga Troyanskaya, Michael Cantor, Gavin Sherlock, Pat Brown, Trevor
+    Hastie, Robert Tibshirani, David Botstein and Russ B. Altman, Missing value
+    estimation methods for DNA microarrays, BIOINFORMATICS Vol. 17 no. 6, 2001
+    Pages 520-525.
 
 .. _missing_indicator:
 

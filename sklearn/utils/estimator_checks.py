@@ -75,7 +75,7 @@ MULTI_OUTPUT = ['CCA', 'DecisionTreeRegressor', 'ElasticNet',
 ALLOW_NAN = ['Imputer', 'SimpleImputer', 'IterativeImputer',
              'MissingIndicator',
              'MaxAbsScaler', 'MinMaxScaler', 'RobustScaler', 'StandardScaler',
-             'PowerTransformer', 'QuantileTransformer']
+             'PowerTransformer', 'QuantileTransformer', 'KNNImputer']
 SUPPORT_STRING = ['SimpleImputer', 'MissingIndicator']
 
 

@@ -14,6 +14,9 @@ turn. The version implemented assumes Gaussian (output) variables. If your
 features are obviously non-Normal, consider transforming them to look more
 Normal so as to potentially improve performance.
 
+With ``KNNImputer``, missing values can be imputed using the weighted
+or unweighted mean of the desired number of nearest neighbors.
+
 In addition of using an imputing method, we can also keep an indication of the
 missing information using :func:`sklearn.impute.MissingIndicator` which might
 carry some information.
@@ -28,6 +31,7 @@ from sklearn.datasets import load_boston
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.pipeline import make_pipeline, make_union
 from sklearn.impute import SimpleImputer, IterativeImputer, MissingIndicator
+from sklearn.impute import SimpleImputer, KNNImputer, MissingIndicator
 from sklearn.model_selection import cross_val_score
 
 rng = np.random.RandomState(0)
@@ -86,11 +90,18 @@ def get_results(dataset):
     iterative_impute_scores = get_scores_for_imputer(imputer,
                                                      X_missing,
                                                      y_missing)
+    # Estimate the score after kNN-imputation of the missing values
+    knn_estimator = make_pipeline(
+        KNNImputer(missing_values=0, col_max_missing=0.99),
+        RandomForestRegressor(random_state=0, n_estimators=100))
+    knn_impute_scores = cross_val_score(knn_estimator, X_missing, y_missing,
+                                        scoring='neg_mean_squared_error')
 
     return ((full_scores.mean(), full_scores.std()),
             (zero_impute_scores.mean(), zero_impute_scores.std()),
             (mean_impute_scores.mean(), mean_impute_scores.std()),
             (iterative_impute_scores.mean(), iterative_impute_scores.std()))
+            (knn_impute_scores.mean(), knn_impute_scores.std()))
 
 
 results_diabetes = np.array(get_results(load_diabetes()))
@@ -107,8 +118,9 @@ xval = np.arange(n_bars)
 x_labels = ['Full data',
             'Zero imputation',
             'Mean Imputation',
-            'Multivariate Imputation']
-colors = ['r', 'g', 'b', 'orange']
+            'Multivariate Imputation',
+            'KNN Imputation']
+colors = ['r', 'g', 'b', 'orange', 'black']
 
 # plot diabetes results
 plt.figure(figsize=(12, 6))

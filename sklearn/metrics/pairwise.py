@@ -16,13 +16,17 @@ import warnings
 import numpy as np
 from scipy.spatial import distance
 from scipy.sparse import csr_matrix
+from scipy.sparse import csc_matrix
 from scipy.sparse import issparse
+from scipy.sparse import isspmatrix_csc
+from scipy.sparse import isspmatrix_csr
 
 from ..utils.validation import _num_samples
 from ..utils.validation import check_non_negative
 from ..utils import check_array
 from ..utils import gen_even_slices
 from ..utils import gen_batches, get_chunk_n_rows
+from ..utils import is_scalar_nan
 from ..utils.extmath import row_norms, safe_sparse_dot
 from ..preprocessing import normalize
 from ..utils._joblib import Parallel
@@ -30,6 +34,24 @@ from ..utils._joblib import delayed
 from ..utils._joblib import effective_n_jobs
 
 from .pairwise_fast import _chi2_kernel_fast, _sparse_manhattan
+
+
+# Get mask for missing values
+def _get_mask(X, value_to_mask):
+    """Compute the boolean mask X == missing_values."""
+    if np.isnan(value_to_mask) or value_to_mask == "NaN":
+        if isspmatrix_csr(X):
+            return csr_matrix(
+                (np.isnan(X.data), X.indices, X.indptr),
+                shape=X.shape, dtype=np.bool).toarray()
+        if isspmatrix_csc(X):
+            return csc_matrix(
+                (np.isnan(X.data), X.indices, X.indptr),
+                shape=X.shape, dtype=np.bool).toarray()
+        return np.isnan(X)
+    if issparse(X):
+        return (X == value_to_mask).toarray()
+    return X == value_to_mask
 
 
 # Utility Functions
@@ -57,7 +79,9 @@ def _return_float_dtype(X, Y):
     return X, Y, dtype
 
 
-def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
+def check_pairwise_arrays(X, Y, precomputed=False, dtype=None,
+                          accept_sparse='csr', force_all_finite=True,
+                          copy=False):
     """ Set X and Y appropriately and checks inputs
 
     If Y is None, it is set as a pointer to X (i.e. not a copy).
@@ -87,6 +111,29 @@ def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
 
         .. versionadded:: 0.18
 
+    accept_sparse : string, boolean or list/tuple of strings
+        String[s] representing allowed sparse matrix formats, such as 'csc',
+        'csr', etc. If the input is sparse but not in the allowed format,
+        it will be converted to the first listed format. True allows the input
+        to be any format. False means that a sparse matrix input will
+        raise an error.
+
+    force_all_finite : boolean or 'allow-nan', (default=True)
+        Whether to raise an error on np.inf and np.nan in array. The
+        possibilities are:
+
+        - True: Force all values of array to be finite.
+        - False: accept both np.inf and np.nan in array.
+        - 'allow-nan': accept only np.nan values in array. Values cannot
+          be infinite.
+
+        .. versionadded:: 0.21
+           ``force_all_finite`` accepts the string ``'allow-nan'``.
+
+    copy : bool
+        Whether a forced copy will be triggered. If copy=False, a copy might
+        be triggered by a conversion.
+
     Returns
     -------
     safe_X : {array-like, sparse matrix}, shape (n_samples_a, n_features)
@@ -105,12 +152,15 @@ def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
         dtype = dtype_float
 
     if Y is X or Y is None:
-        X = Y = check_array(X, accept_sparse='csr', dtype=dtype,
+        X = Y = check_array(X, accept_sparse=accept_sparse, dtype=dtype,
+                            copy=copy, force_all_finite=force_all_finite,
                             warn_on_dtype=warn_on_dtype, estimator=estimator)
     else:
-        X = check_array(X, accept_sparse='csr', dtype=dtype,
+        X = check_array(X, accept_sparse=accept_sparse, dtype=dtype,
+                        copy=copy, force_all_finite=force_all_finite,
                         warn_on_dtype=warn_on_dtype, estimator=estimator)
-        Y = check_array(Y, accept_sparse='csr', dtype=dtype,
+        Y = check_array(Y, accept_sparse=accept_sparse, dtype=dtype,
+                        copy=copy, force_all_finite=force_all_finite,
                         warn_on_dtype=warn_on_dtype, estimator=estimator)
 
     if precomputed:
@@ -255,6 +305,117 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
         # Ensure that distances between vectors and themselves are set to 0.0.
         # This may not be the case due to floating point rounding errors.
         distances.flat[::distances.shape[0] + 1] = 0.0
+
+    return distances if squared else np.sqrt(distances, out=distances)
+
+
+def nan_euclidean_distances(X, Y=None, squared=False,
+                            missing_values=np.nan, copy=True):
+    """Calculates euclidean distances in the presence of missing values
+
+    Computes the euclidean distance between each pair of samples (rows) in X
+    and Y, where Y=X is assumed if Y=None.
+    When calculating the distance between a pair of samples, this formulation
+    zero-weights feature coordinates with a missing value in either sample and
+    scales up the weight of the remaining coordinates:
+
+        dist(x,y) = sqrt(weight * sq. distance from non-missing coordinates)
+        where,
+        weight = Total # of coordinates / # of non-missing coordinates
+
+    Note that if all the coordinates are missing or if there are no common
+    non-missing coordinates then NaN is returned for that pair.
+
+    Read more in the :ref:`User Guide <metrics>`.
+
+    Parameters
+    ----------
+    X : {array-like, sparse matrix}, shape (n_samples_1, n_features)
+
+    Y : {array-like, sparse matrix}, shape (n_samples_2, n_features)
+
+    squared : boolean, default=False
+        Return squared Euclidean distances.
+
+    missing_values : np.nan or integer, default=np.nan
+        Representation of missing value
+
+    copy : boolean, default=True
+        Make and use a deep copy of X and Y (if Y exists)
+
+    Returns
+    -------
+    distances : array, shape (n_samples_1, n_samples_2)
+
+    Examples
+    --------
+    >>> from sklearn.metrics.pairwise import nan_euclidean_distances
+    >>> nan = float("NaN")
+    >>> X = [[0, 1], [1, nan]]
+    >>> # distance between rows of X
+    >>> nan_euclidean_distances(X, X)
+    array([[0.        , 1.41421356],
+           [1.41421356, 0.        ]])
+
+    >>> # get distance to origin
+    >>> nan_euclidean_distances(X, [[0, 0]])
+    array([[1.        ],
+           [1.41421356]])
+
+    References
+    ----------
+    * John K. Dixon, "Pattern Recognition with Partly Missing Data",
+      IEEE Transactions on Systems, Man, and Cybernetics, Volume: 9, Issue:
+      10, pp. 617 - 621, Oct. 1979.
+      http://ieeexplore.ieee.org/abstract/document/4310090/
+
+    See also
+    --------
+    paired_distances : distances between pairs of elements of X and Y.
+    """
+
+    force_all_finite = 'allow-nan' if is_scalar_nan(missing_values) else True
+    X, Y = check_pairwise_arrays(X, Y, accept_sparse=['csr', 'csc'],
+                                 force_all_finite=force_all_finite, copy=copy)
+
+    # Get missing mask for X and Y.T
+    missing_X = _get_mask(X, missing_values)
+    YT = Y.T
+    if Y is X:
+        missing_YT = missing_X.T
+    else:
+        missing_YT = _get_mask(YT, missing_values)
+
+    # Convert to uint8 be used to calculate distances
+    not_missing_X = (~missing_X).astype(np.uint8)
+    not_missing_YT = (~missing_YT).astype(np.uint8)
+
+    # set missing values to zero
+    X[missing_X] = 0
+    YT[missing_YT] = 0
+
+    XX = X.multiply(X) if issparse(X) else X * X
+    YTYT = YT.multiply(YT) if issparse(YT) else YT * YT
+
+    # Calculate distances
+    distances = safe_sparse_dot(X, YT, dense_output=True)
+    distances *= -2
+    distances += safe_sparse_dot(XX, not_missing_YT, dense_output=False)
+    distances += safe_sparse_dot(not_missing_X, YTYT, dense_output=False)
+
+    non_missing_cnt = np.dot(not_missing_X, not_missing_YT)
+    non_missing_mask = (non_missing_cnt != 0)
+
+    distances[non_missing_mask] *= (
+        X.shape[1] / non_missing_cnt[non_missing_mask])
+
+    if X is Y:
+        # Ensure that distances between vectors and themselves are set to 0.0.
+        # This may not be the case due to floating point rounding errors.
+        np.fill_diagonal(distances, 0.0)
+
+    # coordinates with no common coordinates have a nan distance
+    distances[~non_missing_mask] = np.nan
 
     return distances if squared else np.sqrt(distances, out=distances)
 
@@ -1020,6 +1181,7 @@ PAIRWISE_DISTANCE_FUNCTIONS = {
     'l1': manhattan_distances,
     'manhattan': manhattan_distances,
     'precomputed': None,  # HACK: precomputed is always allowed, never called
+    'nan_euclidean': nan_euclidean_distances,
 }
 
 
@@ -1032,16 +1194,17 @@ def distance_metrics():
 
     The valid distance metrics, and the function they map to, are:
 
-    ============     ====================================
-    metric           Function
-    ============     ====================================
-    'cityblock'      metrics.pairwise.manhattan_distances
-    'cosine'         metrics.pairwise.cosine_distances
-    'euclidean'      metrics.pairwise.euclidean_distances
-    'l1'             metrics.pairwise.manhattan_distances
-    'l2'             metrics.pairwise.euclidean_distances
-    'manhattan'      metrics.pairwise.manhattan_distances
-    ============     ====================================
+    ===================     ============================================
+    metric                  Function
+    ===================     ============================================
+    'cityblock'             metrics.pairwise.manhattan_distances
+    'cosine'                metrics.pairwise.cosine_distances
+    'euclidean'             metrics.pairwise.euclidean_distances
+    'l1'                    metrics.pairwise.manhattan_distances
+    'l2'                    metrics.pairwise.euclidean_distances
+    'manhattan'             metrics.pairwise.manhattan_distances
+    'nan_euclidean'      metrics.pairwise.nan_euclidean_distances
+    ===================     ============================================
 
     Read more in the :ref:`User Guide <metrics>`.
 
@@ -1071,7 +1234,8 @@ def _parallel_pairwise(X, Y, func, n_jobs, **kwds):
 def _pairwise_callable(X, Y, metric, **kwds):
     """Handle the callable case for pairwise_{distances,kernels}
     """
-    X, Y = check_pairwise_arrays(X, Y)
+    force_all_finite = False if callable(metric) else True
+    X, Y = check_pairwise_arrays(X, Y, force_all_finite=force_all_finite)
 
     if X is Y:
         # Only calculate metric for upper triangle
@@ -1105,7 +1269,10 @@ _VALID_METRICS = ['euclidean', 'l2', 'l1', 'manhattan', 'cityblock',
                   'cosine', 'dice', 'hamming', 'jaccard', 'kulsinski',
                   'mahalanobis', 'matching', 'minkowski', 'rogerstanimoto',
                   'russellrao', 'seuclidean', 'sokalmichener',
-                  'sokalsneath', 'sqeuclidean', 'yule', "wminkowski"]
+                  'sokalsneath', 'sqeuclidean', 'yule', "wminkowski",
+                  'nan_euclidean']
+
+_NAN_METRICS = ['nan_euclidean']
 
 
 def _check_chunk_size(reduced, chunk_size):
@@ -1323,7 +1490,9 @@ def pairwise_distances(X, Y=None, metric="euclidean", n_jobs=None, **kwds):
     Valid values for metric are:
 
     - From scikit-learn: ['cityblock', 'cosine', 'euclidean', 'l1', 'l2',
-      'manhattan']. These metrics support sparse matrix inputs.
+      'manhattan']. These metrics support sparse matrix
+      inputs.
+      ['nan_euclidean'] but it does not yet support sparse matrices.
 
     - From scipy.spatial.distance: ['braycurtis', 'canberra', 'chebyshev',
       'correlation', 'dice', 'hamming', 'jaccard', 'kulsinski', 'mahalanobis',
@@ -1397,6 +1566,16 @@ def pairwise_distances(X, Y=None, metric="euclidean", n_jobs=None, **kwds):
         raise ValueError("Unknown metric %s. "
                          "Valid metrics are %s, or 'precomputed', or a "
                          "callable" % (metric, _VALID_METRICS))
+
+    if metric in _NAN_METRICS or callable(metric):
+        missing_values = kwds.get("missing_values") if kwds.get(
+            "missing_values") is not None else np.nan
+
+        if np.all(
+                _get_mask(
+                    X.data if issparse(X) else X, missing_values)):
+            raise ValueError(
+                "One or more samples(s) only have missing values.")
 
     if metric == "precomputed":
         X, _ = check_pairwise_arrays(X, Y, precomputed=True)
