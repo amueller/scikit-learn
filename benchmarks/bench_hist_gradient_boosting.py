@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.experimental import enable_hist_gradient_boosting  # noqa
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.datasets import make_classification
 from sklearn.datasets import make_regression
 from sklearn.ensemble._hist_gradient_boosting.utils import (
@@ -22,6 +23,8 @@ parser.add_argument('--xgboost', action="store_true", default=False,
                     help='also plot xgboost')
 parser.add_argument('--catboost', action="store_true", default=False,
                     help='also plot catboost')
+parser.add_argument('--old-sklearn', action="store_true", default=False,
+                    help='also plot old scikit-learn gradient boosting')
 parser.add_argument('--learning-rate', type=float, default=.1)
 parser.add_argument('--problem', type=str, default='classification',
                     choices=['classification', 'regression'])
@@ -149,10 +152,37 @@ def one_run(n_samples):
         print("fit duration: {:.3f}s,".format(cat_fit_duration))
         print("score duration: {:.3f}s,".format(cat_score_duration))
 
+    old_score = None
+    old_fit_duration = None
+    old_score_duration = None
+    if args.old_sklearn:
+        print("Fitting old sklearn model...")
+        old_est = GradientBoostingClassifier()
+        for k, v in est.get_params().items():
+            if k == "loss":
+                continue
+            if k == "max_iter":
+                k = "n_estimators"
+            try:
+                old_est.set_params(**{k: v})
+            except Exception as e:
+                print(str(e))
+
+        tic = time()
+        old_est.fit(X_train, y_train)
+        old_fit_duration = time() - tic
+        tic = time()
+        old_score = old_est.score(X_test, y_test)
+        old_score_duration = time() - tic
+        print("score: {:.4f}".format(old_score))
+        print("fit duration: {:.3f}s,".format(old_fit_duration))
+        print("score duration: {:.3f}s,".format(old_score_duration))
+
     return (sklearn_score, sklearn_fit_duration, sklearn_score_duration,
             lightgbm_score, lightgbm_fit_duration, lightgbm_score_duration,
             xgb_score, xgb_fit_duration, xgb_score_duration,
-            cat_score, cat_fit_duration, cat_score_duration)
+            cat_score, cat_fit_duration, cat_score_duration,
+            old_score, old_fit_duration, old_score_duration)
 
 
 n_samples_list = [1000, 10000, 100000, 500000, 1000000, 5000000, 10000000]
@@ -171,6 +201,9 @@ xgb_score_durations = []
 cat_scores = []
 cat_fit_durations = []
 cat_score_durations = []
+old_scores = []
+old_fit_durations = []
+old_score_durations = []
 
 for n_samples in n_samples_list:
     (sklearn_score,
@@ -184,7 +217,11 @@ for n_samples in n_samples_list:
      xgb_score_duration,
      cat_score,
      cat_fit_duration,
-     cat_score_duration) = one_run(n_samples)
+     cat_score_duration,
+     old_score,
+     old_fit_duration,
+     old_score_duration
+     ) = one_run(n_samples)
 
     for scores, score in (
             (sklearn_scores, sklearn_score),
@@ -198,7 +235,10 @@ for n_samples in n_samples_list:
             (xgb_score_durations, xgb_score_duration),
             (cat_scores, cat_score),
             (cat_fit_durations, cat_fit_duration),
-            (cat_score_durations, cat_score_duration)):
+            (cat_score_durations, cat_score_duration),
+            (old_scores, old_score),
+            (old_fit_durations, old_fit_duration),
+            (old_score_durations, old_score_duration)):
         scores.append(score)
 
 fig, axs = plt.subplots(3, sharex=True)
@@ -221,6 +261,11 @@ if args.catboost:
     axs[0].plot(n_samples_list, cat_scores, label='CatBoost')
     axs[1].plot(n_samples_list, cat_fit_durations, label='CatBoost')
     axs[2].plot(n_samples_list, cat_score_durations, label='CatBoost')
+
+if args.old_sklearn:
+    axs[0].plot(n_samples_list, old_scores, label='Old Sklearn')
+    axs[1].plot(n_samples_list, old_fit_durations, label='Old Sklearn')
+    axs[2].plot(n_samples_list, old_score_durations, label='Old Sklearn')
 
 for ax in axs:
     ax.set_xscale('log')
