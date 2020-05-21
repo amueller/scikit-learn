@@ -181,10 +181,10 @@ from sklearn.model_selection import StratifiedShuffleSplit
 cv = StratifiedShuffleSplit(n_splits=20, test_size=0.25, random_state=42)
 cv_results = cross_validate(clf, X_train, y_train, cv=cv,
                             return_estimator=True)
-cv_coefs = np.concatenate([cv_pipeline.named_steps["classifier"].coef_
+cv_coefs = np.concatenate([cv_pipeline[-1].coef_
                            for cv_pipeline in cv_results["estimator"]])
 fig, ax = plt.subplots()
-ax.barh(clf.named_steps["classifier"].input_features_,
+ax.barh(clf[-1].input_features_,
         cv_coefs.mean(axis=0), xerr=cv_coefs.std(axis=0))
 plt.tight_layout()
 plt.show()
