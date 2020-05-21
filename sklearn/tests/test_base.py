@@ -500,6 +500,7 @@ def test_tag_inheritance():
     inherit_diamond_tag_est = InheritDiamondOverwriteTag()
     assert inherit_diamond_tag_est._get_tags()['allow_nan']
 
+
 @ignore_warnings(category=(FutureWarning, DeprecationWarning))
 def test_sub_estimator_consistency():
     # check that _get_sub_estimators finds all fitted sub estimators
@@ -572,29 +573,6 @@ def test_sub_estimator_consistency():
     for name, Est in others:
         # only things we couldn't instantiate are the search CV
         assert issubclass(Est, BaseSearchCV)
-
-
-# XXX: Remove in 0.23
-def test_regressormixin_score_multioutput():
-    from sklearn.linear_model import LinearRegression
-    # no warnings when y_type is continuous
-    X = [[1], [2], [3]]
-    y = [1, 2, 3]
-    reg = LinearRegression().fit(X, y)
-    assert_no_warnings(reg.score, X, y)
-    # warn when y_type is continuous-multioutput
-    y = [[1, 2], [2, 3], [3, 4]]
-    reg = LinearRegression().fit(X, y)
-    msg = ("The default value of multioutput (not exposed in "
-           "score method) will change from 'variance_weighted' "
-           "to 'uniform_average' in 0.23 to keep consistent "
-           "with 'metrics.r2_score'. To specify the default "
-           "value manually and avoid the warning, please "
-           "either call 'metrics.r2_score' directly or make a "
-           "custom scorer with 'metrics.make_scorer' (the "
-           "built-in scorer 'r2' uses "
-           "multioutput='uniform_average').")
-    assert_warns_message(FutureWarning, msg, reg.score, X, y)
 
 
 def test_warns_on_get_params_non_attribute():
